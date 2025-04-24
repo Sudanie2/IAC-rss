@@ -3,7 +3,7 @@ name: Generate IAC RSS Feed
 on:
   schedule:
     - cron: "10 1 * * *"  # JST 10:10 に毎日実行
-  workflow_dispatch:  # 手動実行も可能
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,12 +13,14 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install dependencies (curl, jq, pup via Go)
+      - name: Install dependencies (curl, jq, pup)
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl jq golang-go
-          go install github.com/ericchiang/pup@latest
-          echo "$HOME/go/bin" >> $GITHUB_PATH
+          sudo apt-get install -y curl jq
+          curl -L -o pup.zip https://github.com/ericchiang/pup/releases/download/v0.4.0/pup_linux_amd64.zip
+          unzip pup.zip
+          chmod +x pup
+          sudo mv pup /usr/local/bin/
 
       - name: Fetch and parse HTML to RSS
         run: |
