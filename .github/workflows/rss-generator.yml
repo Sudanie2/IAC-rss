@@ -2,7 +2,7 @@ name: Generate IAC RSS Feed
 
 on:
   schedule:
-    - cron: "10 1 * * *"  # JST 10:10 に毎日実行
+    - cron: '10 1 * * *'      # JST 10:10 毎日
   workflow_dispatch:
 
 jobs:
@@ -10,57 +10,62 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install dependencies (curl, jq, pup)
+      - name: Install Python deps
+        run: python -m pip install --upgrade requests beautifulsoup4 lxml
+
+      - name: Build RSS via Python
         run: |
-          sudo apt-get update
-          sudo apt-get install -y curl jq
-          curl -L -o pup.tar.gz https://github.com/ericchiang/pup/releases/download/v0.4.0/pup_linux_amd64.tar.gz
-          tar -xzf pup.tar.gz
-          chmod +x pup
-          sudo mv pup /usr/local/bin/
+          python <<'PY'
+          import requests, datetime, email.utils, pathlib, html
+          from bs4 import BeautifulSoup
 
-      - name: Fetch and parse HTML to RSS
-        run: |
-          curl -s https://iac.kyoto-u.ac.jp/news-topics/ -o page.html
+          BASE = "https://iac.kyoto-u.ac.jp"
+          html_text = requests.get(f"{BASE}/news-topics/").text
+          soup = BeautifulSoup(html_text, "lxml")
 
-          echo '<?xml version="1.0" encoding="UTF-8"?>' > new_rss.xml
-          echo '<rss version="2.0"><channel>' >> new_rss.xml
-          echo '<title>IAC NEWS</title>' >> new_rss.xml
-          echo '<link>https://iac.kyoto-u.ac.jp/news-topics/</link>' >> new_rss.xml
-          echo '<description>京都大学IACの最新ニュース</description>' >> new_rss.xml
+          items_xml = []
+          for art in soup.select("div.postBandWrap article"):
+              a_tag  = art.find("a")
+              link   = a_tag["href"]
+              if link.startswith("/"):
+                  link = BASE + link
+              title  = a_tag.find("h2").get_text(strip=True)
+              date_s = a_tag.find("time")["datetime"]  # ISO 2025-04-23
+              dt     = datetime.datetime.fromisoformat(date_s)
+              pub    = email.utils.format_datetime(dt)
 
-          pup 'div.postBandWrap article json{}' < page.html |
-          jq -r '
-            map({
-              link: "https://iac.kyoto-u.ac.jp" + .children[0].href,
-              title: .children[0].children[1].text,
-              date: .children[0].children[0].children[0].datetime
-            }) |
-            .[] |
-            "<item><title>\(.title | @html)</title><link>\(.link)</link><pubDate>\(.date)</pubDate></item>"
-          ' >> new_rss.xml
+              items_xml.append(
+                  f"<item><title>{html.escape(title)}</title>"
+                  f"<link>{link}</link><pubDate>{pub}</pubDate></item>"
+              )
 
-          echo '</channel></rss>' >> new_rss.xml
+          rss = (
+              '<?xml version="1.0" encoding="UTF-8"?>'
+              '<rss version="2.0"><channel>'
+              '<title>IAC NEWS</title>'
+              '<link>https://iac.kyoto-u.ac.jp/news-topics/</link>'
+              '<description>京都大学IACの最新ニュース</description>'
+              + "".join(items_xml) +
+              '</channel></rss>'
+          )
 
-      - name: Check for changes
+          pathlib.Path("new_rss.xml").write_text(rss, encoding="utf-8")
+          PY
+
+      - name: Skip if no changes
         run: |
           if [ -f rss.xml ] && cmp -s new_rss.xml rss.xml; then
-            echo "No changes in RSS feed. Skipping commit."
-            exit 0
-          fi
+            echo "No change"; exit 0; fi
           mv new_rss.xml rss.xml
 
-      - name: Commit and Push RSS
+      - name: Commit & push
         run: |
           if git diff --quiet rss.xml; then
-            echo "No changes in rss.xml. Skipping commit."
-            exit 0
-          fi
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
+            echo "No diff"; exit 0; fi
+          git config --global user.name  github-actions
+          git config --global user.email github-actions@github.com
           git add rss.xml
-          git commit -m "Updated RSS feed"
+          git commit -m "Update RSS"
           git push
