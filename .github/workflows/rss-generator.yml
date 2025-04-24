@@ -1,0 +1,58 @@
+name: Generate IAC RSS Feed
+
+on:
+  schedule:
+    - cron: "10 1 * * *"  # JST 10:10 に毎日実行
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl pup jq
+
+      - name: Fetch and parse HTML to RSS
+        run: |
+          curl -s https://iac.kyoto-u.ac.jp/news-topics/ -o page.html
+
+          echo '<?xml version="1.0" encoding="UTF-8"?>' > new_rss.xml
+          echo '<rss version="2.0"><channel>' >> new_rss.xml
+          echo '<title>IAC NEWS</title>' >> new_rss.xml
+          echo '<link>https://iac.kyoto-u.ac.jp/news-topics/</link>' >> new_rss.xml
+          echo '<description>京都大学IACの最新ニュース</description>' >> new_rss.xml
+
+          pup 'div.postBandWrap article json{}' < page.html |
+          jq -r '
+            map({
+              link: "https://iac.kyoto-u.ac.jp" + .children[0].href,
+              title: .children[0].children[1].text,
+              date: .children[0].children[0].children[0].datetime
+            }) |
+            .[] |
+            "<item><title>\(.title | @html)</title><link>\(.link)</link><pubDate>\(.date)</pubDate></item>"
+          ' >> new_rss.xml
+
+          echo '</channel></rss>' >> new_rss.xml
+
+      - name: Check for changes
+        run: |
+          if [ -f rss.xml ] && cmp -s new_rss.xml rss.xml; then
+            echo "No changes in RSS feed. Skipping commit."
+            exit 0
+          fi
+          mv new_rss.xml rss.xml
+
+      - name: Commit and Push RSS
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add rss.xml
+          git commit -m "Updated RSS feed"
+          git push
