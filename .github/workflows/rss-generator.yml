@@ -22,24 +22,17 @@ jobs:
           from bs4 import BeautifulSoup
 
           BASE = "https://iac.kyoto-u.ac.jp"
-          html_text = requests.get(f"{BASE}/news-topics/").text
-          soup = BeautifulSoup(html_text, "lxml")
+          soup = BeautifulSoup(requests.get(f"{BASE}/news-topics/").text, "lxml")
 
-          items_xml = []
+          items = []
           for art in soup.select("div.postBandWrap article"):
-              a_tag  = art.find("a")
-              link   = a_tag["href"]
-              if link.startswith("/"):
-                  link = BASE + link
-              title  = a_tag.find("h2").get_text(strip=True)
-              date_s = a_tag.find("time")["datetime"]  # ISO 2025-04-23
-              dt     = datetime.datetime.fromisoformat(date_s)
-              pub    = email.utils.format_datetime(dt)
-
-              items_xml.append(
-                  f"<item><title>{html.escape(title)}</title>"
-                  f"<link>{link}</link><pubDate>{pub}</pubDate></item>"
-              )
+              a = art.a
+              link = a["href"]
+              link = BASE + link if link.startswith("/") else link
+              title = a.find("h2").get_text(strip=True)
+              dt = datetime.datetime.fromisoformat(a.time["datetime"])
+              pub = email.utils.format_datetime(dt)
+              items.append(f"<item><title>{html.escape(title)}</title><link>{link}</link><pubDate>{pub}</pubDate></item>")
 
           rss = (
               '<?xml version="1.0" encoding="UTF-8"?>'
@@ -47,25 +40,24 @@ jobs:
               '<title>IAC NEWS</title>'
               '<link>https://iac.kyoto-u.ac.jp/news-topics/</link>'
               '<description>京都大学IACの最新ニュース</description>'
-              + "".join(items_xml) +
+              + "".join(items) +
               '</channel></rss>'
           )
-
           pathlib.Path("new_rss.xml").write_text(rss, encoding="utf-8")
           PY
 
-      - name: Skip if no changes
+      - name: Check for changes & stage file
         run: |
           if [ -f rss.xml ] && cmp -s new_rss.xml rss.xml; then
-            echo "No change"; exit 0; fi
+            echo "No content change"; exit 0; fi
           mv new_rss.xml rss.xml
-
-      - name: Commit & push
-        run: |
-          if git diff --quiet rss.xml; then
-            echo "No diff"; exit 0; fi
-          git config --global user.name  github-actions
-          git config --global user.email github-actions@github.com
           git add rss.xml
-          git commit -m "Update RSS"
+
+      - name: Commit & push if changed
+        run: |
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"; exit 0; fi
+          git config --global user.name github-actions
+          git config --global user.email github-actions@github.com
+          git commit -m "Update RSS feed"
           git push
