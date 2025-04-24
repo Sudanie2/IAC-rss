@@ -3,7 +3,7 @@ name: Generate IAC RSS Feed
 on:
   schedule:
     - cron: "10 1 * * *"  # JST 10:10 に毎日実行
-  workflow_dispatch:
+  workflow_dispatch:  # 手動実行も可能
 
 jobs:
   build:
@@ -13,10 +13,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install dependencies (curl, jq, pup via Go)
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl pup jq
+          sudo apt-get install -y curl jq golang-go
+          go install github.com/ericchiang/pup@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Fetch and parse HTML to RSS
         run: |
@@ -51,6 +53,10 @@ jobs:
 
       - name: Commit and Push RSS
         run: |
+          if git diff --quiet rss.xml; then
+            echo "No changes in rss.xml. Skipping commit."
+            exit 0
+          fi
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
           git add rss.xml
