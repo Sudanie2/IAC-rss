@@ -17,8 +17,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq
-          curl -L -o pup.zip https://github.com/ericchiang/pup/releases/download/v0.4.0/pup_linux_amd64.zip
-          unzip pup.zip
+          curl -L -o pup.tar.gz https://github.com/ericchiang/pup/releases/download/v0.4.0/pup_linux_amd64.tar.gz
+          tar -xzf pup.tar.gz
           chmod +x pup
           sudo mv pup /usr/local/bin/
 
