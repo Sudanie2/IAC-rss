@@ -2,7 +2,7 @@ name: Generate IAC RSS Feed
 
 on:
   schedule:
-    - cron: '10 1 * * *'      # JST 10:10 毎日
+    - cron: '10 1 * * *'
   workflow_dispatch:
 
 jobs:
@@ -25,21 +25,30 @@ jobs:
           soup = BeautifulSoup(requests.get(f"{BASE}/news-topics/").text, "lxml")
 
           items = []
-          for art in soup.select("div.postBandWrap article"):
-              a = art.a
+          for art in soup.select("article"):
+              a = art.find("a")
+              time_tag = art.find("time")
+              h2 = art.find("h2")
+              if not (a and time_tag and h2):
+                  continue
               link = a["href"]
               link = BASE + link if link.startswith("/") else link
-              title = a.find("h2").get_text(strip=True)
-              dt = datetime.datetime.fromisoformat(a.time["datetime"])
+              title = h2.get_text(strip=True)
+              try:
+                  dt = datetime.datetime.fromisoformat(time_tag["datetime"])
+              except Exception:
+                  continue
               pub = email.utils.format_datetime(dt)
               items.append(f"<item><title>{html.escape(title)}</title><link>{link}</link><pubDate>{pub}</pubDate></item>")
 
+          now = email.utils.format_datetime(datetime.datetime.now())
           rss = (
               '<?xml version="1.0" encoding="UTF-8"?>'
               '<rss version="2.0"><channel>'
               '<title>IAC NEWS</title>'
               '<link>https://iac.kyoto-u.ac.jp/news-topics/</link>'
               '<description>京都大学IACの最新ニュース</description>'
+              f'<lastBuildDate>{now}</lastBuildDate>'
               + "".join(items) +
               '</channel></rss>'
           )
