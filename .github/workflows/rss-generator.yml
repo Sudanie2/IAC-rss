@@ -2,7 +2,7 @@ name: Generate IAC RSS Feed
 
 on:
   schedule:
-    - cron: '10 1 * * *'
+    - cron: '10 1 * * *'  # JST 10:10 毎日
   workflow_dispatch:
 
 jobs:
@@ -12,34 +12,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python deps
+      - name: Install Python dependencies
         run: python -m pip install --upgrade requests beautifulsoup4 lxml
 
-      - name: Build RSS via Python
+      - name: Build RSS Feed
         run: |
           python <<'PY'
           import requests, datetime, email.utils, pathlib, html
           from bs4 import BeautifulSoup
 
           BASE = "https://iac.kyoto-u.ac.jp"
-          soup = BeautifulSoup(requests.get(f"{BASE}/news-topics/").text, "lxml")
+          LIST_URL = f"{BASE}/news-topics/"
+          response = requests.get(LIST_URL)
+          soup = BeautifulSoup(response.text, "lxml")
 
           items = []
-          for art in soup.select("article"):
+
+          for art in soup.select("div.postBandWrap > article"):
               a = art.find("a")
-              time_tag = art.find("time")
-              h2 = art.find("h2")
-              if not (a and time_tag and h2):
+              if not a:
                   continue
               link = a["href"]
-              link = BASE + link if link.startswith("/") else link
-              title = h2.get_text(strip=True)
-              try:
-                  dt = datetime.datetime.fromisoformat(time_tag["datetime"])
-              except Exception:
-                  continue
+              full_link = BASE + link if link.startswith("/") else link
+              title = a.get_text(strip=True)
+
+              # 個別記事ページから<time datetime="...">を取得
+              detail_html = requests.get(full_link).text
+              detail_soup = BeautifulSoup(detail_html, "lxml")
+              time_tag = detail_soup.find("time")
+              if time_tag and time_tag.has_attr("datetime"):
+                  try:
+                      dt = datetime.datetime.fromisoformat(time_tag["datetime"])
+                  except Exception:
+                      dt = datetime.datetime.now()
+              else:
+                  dt = datetime.datetime.now()
+
               pub = email.utils.format_datetime(dt)
-              items.append(f"<item><title>{html.escape(title)}</title><link>{link}</link><pubDate>{pub}</pubDate></item>")
+
+              items.append(f"<item><title>{html.escape(title)}</title><link>{full_link}</link><pubDate>{pub}</pubDate></item>")
 
           now = email.utils.format_datetime(datetime.datetime.now())
           rss = (
@@ -52,6 +63,7 @@ jobs:
               + "".join(items) +
               '</channel></rss>'
           )
+
           pathlib.Path("new_rss.xml").write_text(rss, encoding="utf-8")
           PY
 
